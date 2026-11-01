@@ -1,0 +1,68 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Slice Flip</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10172d;color:white;font-family:system-ui,sans-serif;overflow:hidden}canvas{display:block;width:100vw;height:100vh;touch-action:none}.hud{position:fixed;top:16px;left:20px;font-weight:800;font-size:22px;text-shadow:0 2px 5px #0008}.hint{position:fixed;bottom:20px;left:0;right:0;text-align:center;color:#e6edff;font-weight:650;pointer-events:none}.btn{position:fixed;top:15px;right:18px;border:0;border-radius:20px;padding:10px 18px;background:#ffce48;font-weight:800;cursor:pointer}
+.shopBtn{right:118px;background:#7cf0c4}.shop{position:fixed;inset:0;background:#0b1230ec;z-index:10;display:none;overflow:auto;padding:30px 18px}.shop.open{display:block}.shopInner{max-width:900px;margin:auto}.shopHeader{display:flex;align-items:center;justify-content:space-between;gap:15px}.shop h1{font-size:clamp(30px,5vw,52px);margin:8px 0}.shop p{color:#c9d5f7}.closeShop{background:#ffce48;border:0;padding:12px 20px;border-radius:16px;font-weight:800;cursor:pointer}.wallet{font-size:23px;color:#ffe48c;font-weight:800;margin:15px 0}.skins{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:16px}.skin{border:2px solid #42517d;background:#1a2752;padding:20px;border-radius:20px;text-align:center}.skin.selected{border-color:#7cf0c4}.skin h2{margin:6px 0}.skin .preview{font-size:64px;margin:12px}.skin button{background:#ffce48;border:0;border-radius:12px;padding:11px 18px;font-weight:800;cursor:pointer;width:100%}.skin button:disabled{background:#8293ab;cursor:default}
+ .gamesBtn{position:fixed;right:235px;top:15px;background:#a7b8ff;color:#162044;text-decoration:none;border-radius:20px;padding:10px 16px;font-weight:800;z-index:2}@media(max-width:600px){.gamesBtn{top:64px;right:18px}.hint{font-size:12px;padding:0 12px}}
+</style>
+<canvas id="game"></canvas><div class="hud" id="hud"></div><a class="gamesBtn" href="games.html">🎮 Games</a><button class="btn shopBtn" onclick="openShop()">🛒 Shop</button><button class="btn" onclick="reset()">Restart</button><div class="hint">Tap / Click / Space to flip your knife • 70× more fruit • Each fruit = 10,000 points • Goal changes with your knife • Dodge spikes, blocks & lasers!</div>
+<section id="shop" class="shop" aria-label="Knife shop"><div class="shopInner"><div class="shopHeader"><h1>🛒 Knife Shop</h1><button class="closeShop" onclick="closeShop()">▶ Back to game</button></div><p>Win a game to earn 1 coin! Goal: 1,000,000 through Galaxy; 10,000,000 for Thunder through Dragon; 100,000,000 for Cosmic Legend. Unlock stronger knives beyond Galaxy! Thunder 20×, Shadow 50×, Dragon 100×, and Cosmic Legend 1,000× fruit points.</p><div class="wallet" id="wallet"></div><div class="skins" id="skins"></div></div></section><script>
+const c=document.getElementById('game'),x=c.getContext('2d'),hud=document.getElementById('hud');let W,H,ground,knife,items,particles,score,dead,won,scroll,spawn,fruitSpawn,frames;const FRUIT_POINTS=10000;
+function coinsPerWin(){return 1}
+function goalForKnife(){const idx=SKINS.findIndex(s=>s.id===selected);return idx>=8?100000000:idx>=5?10000000:1000000}
+function updateScore(){hud.textContent="Score: "+score.toLocaleString()+" / "+goalForKnife().toLocaleString()}
+const SKINS=[{id:"classic",name:"Normal Knife",price:0,blade:"#dce9f5",handle:"#343c48",emoji:"🔪"},{id:"gold",name:"Golden",price:3,blade:"#ffd650",handle:"#c57a15",emoji:"✨",multiplier:1.5},{id:"ice",name:"Ice",price:7,blade:"#85f4ff",handle:"#2b86bd",emoji:"❄️",multiplier:2},{id:"lava",name:"Lava",price:15,blade:"#ff7047",handle:"#761f2c",emoji:"🔥",multiplier:3},{id:"galaxy",name:"Galaxy",price:30,blade:"#e8a7ff",handle:"#5831a3",emoji:"🌌",multiplier:10},{id:"thunder",name:"Thunder",price:50,blade:"#f8f75c",handle:"#4868d9",emoji:"⚡",multiplier:20},{id:"shadow",name:"Shadow",price:100,blade:"#7e85a8",handle:"#161326",emoji:"🌑",multiplier:50},{id:"dragon",name:"Dragon",price:200,blade:"#72ef81",handle:"#1b5b35",emoji:"🐉",multiplier:100},{id:"cosmic",name:"Cosmic Legend",price:500,blade:"#ff8ce0",handle:"#3b1b8b",emoji:"👑",multiplier:1000}];
+let coins=Number(localStorage.getItem("sliceFlipCoins")||0),owned=JSON.parse(localStorage.getItem("sliceFlipOwned")||'["classic"]'),selected="classic",shopOpen=false;
+// Gold is locked by default. Only a confirmed 3-coin purchase unlocks it.
+const goldPurchased=localStorage.getItem("sliceFlipGoldPurchased")==="yes";
+if(!goldPurchased) owned=owned.filter(id=>id!=="gold");
+if(!owned.includes("classic"))owned.unshift("classic");
+function saveShop(){localStorage.setItem("sliceFlipCoins",coins);localStorage.setItem("sliceFlipOwned",JSON.stringify(owned));localStorage.setItem("sliceFlipSelected",selected)}
+function openShop(){shopOpen=true;document.getElementById("shop").classList.add("open");renderShop()}
+function closeShop(){shopOpen=false;document.getElementById("shop").classList.remove("open")}
+function buySkin(id){const skin=SKINS.find(s=>s.id===id);if(!skin)return;if(!owned.includes(id)){if(coins<skin.price)return;coins-=skin.price;owned.push(id);if(id==="gold")localStorage.setItem("sliceFlipGoldPurchased","yes")}selected=id;saveShop();reset();renderShop()}
+function renderShop(){document.getElementById("wallet").textContent="🪙 Your coins: "+coins.toLocaleString();document.getElementById("skins").innerHTML=SKINS.map(s=>`<div class="skin ${selected===s.id?"selected":""}"><div class="preview">${s.emoji}</div><h2>${s.name}</h2><p>${s.price===0?"FREE":s.price.toLocaleString()+" coins"}</p>${s.multiplier?`<p>⭐ ${s.multiplier}× fruit points (${(FRUIT_POINTS*s.multiplier).toLocaleString()} per fruit)</p>`:""}${s.coinMultiplier?`<p>🪙 ${s.coinMultiplier.toLocaleString()} coins per win!</p>`:""}<p>🏆 Win goal: ${(SKINS.indexOf(s)>=8?100000000:SKINS.indexOf(s)>=5?10000000:1000000).toLocaleString()} points</p><button onclick="buySkin('${s.id}')" ${(!owned.includes(s.id)&&coins<s.price)?"disabled":""}>${selected===s.id?"✓ Equipped":owned.includes(s.id)?"Equip":coins<s.price?"Need "+s.price+" coins":"Buy for "+s.price+" coins"}</button></div>`).join("")}
+function resize(){W=c.width=innerWidth;H=c.height=innerHeight;ground=H*.79}onresize=resize;resize();
+function reset(){knife={x:W*.23,y:ground-100,vy:0,rot:0,vr:0,active:true};items=[];particles=[];score=0;dead=false;won=false;scroll=0;spawn=0;fruitSpawn=0;frames=0;updateScore()}reset();
+function flip(){if(shopOpen)return;if(dead||won){reset();return}knife.vy=-Math.max(10,H*.017);knife.vr+=.19;knife.active=true}
+addEventListener('pointerdown',e=>{if(!e.target.closest('button, a, #shop'))flip()});addEventListener('keydown',e=>{if(!shopOpen&&(e.code==='Space'||e.code==='ArrowUp')){e.preventDefault();if(!e.repeat)flip()}});
+function burst(a,b,color){for(let j=0;j<12;j++)particles.push({x:a,y:b,vx:(Math.random()-.5)*9,vy:(Math.random()-.5)*9,life:28,color})}
+function drawKnife(){x.save();x.translate(knife.x,knife.y);x.rotate(knife.rot);const skin=SKINS.find(s=>s.id===selected)||SKINS[0];x.fillStyle=skin.blade;x.beginPath();x.moveTo(-6,-51);x.lineTo(10,-49);x.lineTo(11,18);x.lineTo(-6,18);x.closePath();x.fill();x.fillStyle=skin.handle;x.fillRect(-8,12,21,40);x.fillStyle=skin.id==='classic'?'#8693a3':'#a98fff';x.fillRect(-5,17,5,27);x.restore()}
+// Check the full rotating knife against each obstacle, not just its center.
+function touchingObstacle(o){
+ const sn=Math.sin(knife.rot),cs=Math.cos(knife.rot);
+ // Sample along the blade and handle so even a tip grazing a hazard is fatal.
+ for(let t=-51;t<=52;t+=5){
+  for(const side of [-8,0,10]){
+   const px=knife.x+side*cs-t*sn,py=knife.y+side*sn+t*cs;
+   if(o.type==='laser' && px>=o.x-11&&px<=o.x+11&&py>=ground-205&&py<=ground)return true;
+   if(o.type==='block' && px>=o.x-28&&px<=o.x+28&&py>=ground-76&&py<=ground)return true;
+   if(o.type==='saw' && Math.hypot(px-o.x,py-o.y)<=37)return true;
+   if(o.type==='spike'||o.type==='double'){
+    const count=o.type==='double'?2:1;
+    for(let k=0;k<count;k++){
+     const cx=o.x+(k-(count-1)/2)*35,dx=Math.abs(px-cx);
+     if(dx<=23&&py>=ground-56*(1-dx/23)&&py<=ground)return true;
+    }
+   }
+  }
+ }
+ return false;
+}
+function loop(){requestAnimationFrame(loop);if(shopOpen)return;frames++;let speed=Math.min(7,3+(score/FRUIT_POINTS)*.018)*Math.max(.75,W/1000);x.fillStyle='#a6e7ff';x.fillRect(0,0,W,H);x.fillStyle='#e3f7ff';for(let i=0;i<6;i++){let px=((i*270-scroll*.12)%(W+350)+W+350)%(W+350)-100;x.beginPath();x.ellipse(px,H*.18+(i%3)*65,75,20,0,0,7);x.fill()}
+x.fillStyle='#88c96d';x.fillRect(0,ground,W,H-ground);x.fillStyle='#5eab51';x.fillRect(0,ground,W,14);
+if(!dead&&!won){scroll+=speed;knife.vy+=.46;knife.y+=knife.vy;knife.rot+=knife.vr;knife.vr*=.992;if(knife.y>ground-52){knife.y=ground-52;knife.vy=0;knife.vr*=.82}if(--spawn<=0){
+ // Keep the original hazard rate; extra fruit must not multiply the dangers.
+ if(Math.random()<.62){let type=['spike','double','block','laser'][Math.floor(Math.random()*4)];
+ items.push({x:W+40,y:ground-(type==='saw'?70:type==='laser'?110:type==='block'?38:26),r:type==='double'?39:type==='laser'?32:27,type,spike:true,hit:false});}
+ spawn=Math.max(17,30-(score/FRUIT_POINTS)*.012)+Math.random()*24;
+ }
+ // Original fruit chance was 38% per ~42 frames (~1 per 110 frames).
+ // 70x that rate is approximately one fruit every 1.6 frames.
+ if(--fruitSpawn<=0){items.push({x:W+40+Math.random()*36,y:ground-(45+Math.random()*115),r:24,type:'fruit',spike:false,hit:false,color:['#ff556b','#ffca38','#a35bfa','#5bd987'][Math.floor(Math.random()*4)]});fruitSpawn=1.6;}
+}
+for(const o of items){if(!dead&&!won)o.x-=speed;if(o.hit)continue;if(o.spike){if(o.type==='saw'){x.save();x.translate(o.x,o.y);x.rotate(frames*.09);x.fillStyle='#637083';for(let j=0;j<12;j++){x.rotate(Math.PI/6);x.fillRect(-6,-37,12,20)}x.beginPath();x.arc(0,0,26,0,7);x.fill();x.fillStyle='#e7eef8';x.beginPath();x.arc(0,0,8,0,7);x.fill();x.restore()}else if(o.type==='block'){x.fillStyle='#454b67';x.fillRect(o.x-28,ground-76,56,76);x.fillStyle='#ff5968';x.fillRect(o.x-28,ground-76,56,10)}else if(o.type==='laser'){x.fillStyle='#f13d87';x.fillRect(o.x-9,ground-205,18,205);x.fillStyle='#ffb6d5';x.fillRect(o.x-3,ground-205,6,205)}else{let count=o.type==='double'?2:1;for(let k=0;k<count;k++){let xx=o.x+(k-(count-1)/2)*35;x.fillStyle='#5b6379';x.beginPath();x.moveTo(xx-23,ground);x.lineTo(xx,ground-56);x.lineTo(xx+23,ground);x.fill()}}}else{x.fillStyle=o.color;x.beginPath();x.arc(o.x,o.y,o.r,0,7);x.fill();x.fillStyle='#36864d';x.fillRect(o.x-2,o.y-o.r-6,5,10)}
+if(!dead&&!won&&(o.spike?touchingObstacle(o):Math.hypot(o.x-knife.x,o.y-knife.y)<o.r+25)){if(o.spike){dead=true;knife.vy=0;knife.vr=0;burst(knife.x,knife.y,'#ecefff')}else{o.hit=true;score+=Math.round(FRUIT_POINTS*((SKINS.find(s=>s.id===selected)||SKINS[0]).multiplier||1));updateScore();burst(o.x,o.y,o.color);if(score>=goalForKnife()){won=true;coins+=coinsPerWin();saveShop();knife.vy=0;knife.vr=0}}}}
+items=items.filter(o=>o.x>-80&&!o.hit);for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.25;p.life--;x.globalAlpha=Math.max(0,p.life/28);x.fillStyle=p.color;x.fillRect(p.x,p.y,7,7)}x.globalAlpha=1;particles=particles.filter(p=>p.life>0);drawKnife();
+if(dead||won){x.fillStyle=won?'#102b32c9':'#0a1029b8';x.fillRect(0,0,W,H);x.textAlign='center';x.fillStyle='white';x.font='bold '+Math.min(54,W/9)+'px system-ui';x.fillText(won?'YOU WIN! 🎉':'GAME OVER',W/2,H*.42);x.font='bold 25px system-ui';x.fillText('Score: '+score.toLocaleString(),W/2,H*.49);x.font='18px system-ui';x.fillText(won?'You earned '+coinsPerWin().toLocaleString()+' coins! 🪙':'Tap or press Space to restart',W/2,H*.55);if(won){x.fillText('Tap or press Space to play again',W/2,H*.61)};x.textAlign='left'}}
+loop();
+</script></html>
